@@ -7,7 +7,6 @@ const DB_PATH = path.join(process.cwd(), "shop.db");
 type SqlParams = Array<string | number | null>;
 
 declare global {
-  // eslint-disable-next-line no-var
   var __shopDb: Database.Database | undefined;
 }
 
