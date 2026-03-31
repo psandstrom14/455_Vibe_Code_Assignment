@@ -7,8 +7,8 @@ import {
 import { selectAll } from "@/lib/db";
 
 type Customer = {
-  id: number;
-  name: string;
+  customer_id: number;
+  full_name: string;
   email: string;
 };
 
@@ -30,7 +30,7 @@ async function clearCustomerSelection() {
 
 export default function SelectCustomerPage() {
   const customers = selectAll<Customer>(
-    "SELECT id, name, email FROM customers ORDER BY name ASC",
+    "SELECT customer_id, full_name, email FROM customers WHERE is_active = 1 ORDER BY full_name ASC"
   );
 
   return (
@@ -50,15 +50,15 @@ export default function SelectCustomerPage() {
       <div className="space-y-3">
         {customers.map((customer) => (
           <form
-            key={customer.id}
+            key={customer.customer_id}
             action={chooseCustomer}
             className="flex items-center justify-between rounded-md border border-slate-200 p-3"
           >
             <div>
-              <p className="font-medium">{customer.name}</p>
+              <p className="font-medium">{customer.full_name}</p>
               <p className="text-sm text-slate-600">{customer.email}</p>
             </div>
-            <input type="hidden" name="customerId" value={customer.id} />
+            <input type="hidden" name="customerId" value={customer.customer_id} />
             <button
               type="submit"
               className="rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"

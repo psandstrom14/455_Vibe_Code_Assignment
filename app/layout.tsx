@@ -21,8 +21,8 @@ export const metadata: Metadata = {
 };
 
 type Customer = {
-  id: number;
-  name: string;
+  customer_id: number;
+  full_name: string;
 };
 
 const NAV_LINKS = [
@@ -41,10 +41,10 @@ export default async function RootLayout({
 }>) {
   const customerId = await getActiveCustomerId();
   const activeCustomer = customerId
-    ? selectOne<Customer>("SELECT id, name FROM customers WHERE id = ?", [
-        customerId,
-      ])
-    : null;
+  ? selectOne<Customer>("SELECT customer_id, full_name FROM customers WHERE customer_id = ?", [
+      customerId,
+    ])
+  : null;
 
   return (
     <html
@@ -56,9 +56,9 @@ export default async function RootLayout({
           <header className="mb-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <h1 className="text-xl font-semibold">Student Shop</h1>
             <p className="mt-1 text-sm text-slate-600">
-              {activeCustomer
-                ? `Acting as: ${activeCustomer.name}`
-                : "No active customer selected"}
+            {activeCustomer
+              ? `Acting as: ${activeCustomer.full_name}`
+              : "No active customer selected"}
             </p>
             <nav className="mt-4 flex flex-wrap gap-2">
               {NAV_LINKS.map((link) => (
