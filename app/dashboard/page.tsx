@@ -1,6 +1,6 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getActiveCustomerId } from "@/lib/customer-session";
-import { selectOne } from "@/lib/db";
+import { selectAll, selectOne } from "@/lib/db";
 
 type Customer = {
   id: number;
@@ -10,32 +10,49 @@ type Customer = {
 
 type DashboardStats = {
   order_count: number;
-  spent_cents: number;
+  total_value: number;
+};
+
+type RecentOrder = {
+  order_id: number;
+  order_timestamp: string;
+  fulfilled: number;
+  total_value: number;
 };
 
 export default async function DashboardPage() {
   const customerId = await getActiveCustomerId();
   if (!customerId) {
-    return (
-      <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold">Customer Dashboard</h2>
-        <p className="mt-2 text-slate-600">Select a customer to continue.</p>
-        <Link
-          href="/select-customer"
-          className="mt-4 inline-block rounded-md bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
-        >
-          Select Customer
-        </Link>
-      </section>
-    );
+    redirect("/select-customer");
   }
 
   const customer = selectOne<Customer>(
     "SELECT id, name, email FROM customers WHERE id = ?",
     [customerId],
   );
+  if (!customer) {
+    redirect("/select-customer");
+  }
+
   const stats = selectOne<DashboardStats>(
-    "SELECT COUNT(*) as order_count, COALESCE(SUM(total_cents), 0) as spent_cents FROM orders WHERE customer_id = ?",
+    `SELECT
+      COUNT(*) as order_count,
+      COALESCE(SUM(total_cents), 0) / 100.0 as total_value
+    FROM orders
+    WHERE customer_id = ?`,
+    [customerId],
+  );
+
+  const recentOrders = selectAll<RecentOrder>(
+    `SELECT
+      id as order_id,
+      created_at as order_timestamp,
+      CASE WHEN status = 'FULFILLED' THEN 1 ELSE 0 END as fulfilled,
+      total_cents / 100.0 as total_value
+    FROM orders
+    WHERE customer_id = ?
+    ORDER BY created_at DESC
+    LIMIT 5`,
     [customerId],
   );
 
@@ -52,10 +69,40 @@ export default async function DashboardPage() {
         </div>
         <div className="rounded-md border border-slate-200 p-4">
           <p className="text-sm text-slate-600">Total Spend</p>
-          <p className="text-2xl font-semibold">
-            ${((stats?.spent_cents ?? 0) / 100).toFixed(2)}
-          </p>
+          <p className="text-2xl font-semibold">${(stats?.total_value ?? 0).toFixed(2)}</p>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="text-lg font-semibold">5 Most Recent Orders</h3>
+        {recentOrders.length === 0 ? (
+          <p className="mt-2 text-slate-600">No orders yet for this customer.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full border-collapse rounded-md border border-slate-200 text-sm">
+              <thead className="bg-slate-100 text-left">
+                <tr>
+                  <th className="px-3 py-2">Order ID</th>
+                  <th className="px-3 py-2">Order Timestamp</th>
+                  <th className="px-3 py-2">Fulfilled</th>
+                  <th className="px-3 py-2">Total Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentOrders.map((order) => (
+                  <tr key={order.order_id} className="border-t border-slate-200">
+                    <td className="px-3 py-2">{order.order_id}</td>
+                    <td className="px-3 py-2">
+                      {new Date(order.order_timestamp).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2">{order.fulfilled ? "Yes" : "No"}</td>
+                    <td className="px-3 py-2">${Number(order.total_value).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </section>
   );
