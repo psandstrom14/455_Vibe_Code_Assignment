@@ -36,18 +36,18 @@ export default async function DashboardPage() {
     );
   }
 
-  const customer = selectOne<Customer>(
-    "SELECT customer_id, full_name, email FROM customers WHERE customer_id = ?",
+  const customer = await selectOne<Customer>(
+    "SELECT customer_id, full_name, email FROM customers WHERE customer_id = $1",
     [customerId],
   );
 
-  const stats = selectOne<DashboardStats>(
-    "SELECT COUNT(*) as order_count, COALESCE(SUM(order_total), 0) as total_spend FROM orders WHERE customer_id = ?",
+  const stats = await selectOne<DashboardStats>(
+    "SELECT COUNT(*)::int AS order_count, COALESCE(SUM(order_total), 0)::float AS total_spend FROM orders WHERE customer_id = $1",
     [customerId],
   );
 
-  const recentOrders = selectAll<RecentOrder>(
-    "SELECT order_id, order_datetime, order_total FROM orders WHERE customer_id = ? ORDER BY order_datetime DESC LIMIT 5",
+  const recentOrders = await selectAll<RecentOrder>(
+    "SELECT order_id, order_datetime, order_total FROM orders WHERE customer_id = $1 ORDER BY order_datetime DESC LIMIT 5",
     [customerId],
   );
 

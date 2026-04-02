@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getDb, selectAll } from "@/lib/db";
+import { selectAll, withTransaction } from "@/lib/db";
 import { getActiveCustomerId } from "@/lib/customer-session";
 
 type Product = {
@@ -17,8 +17,7 @@ async function createOrder(formData: FormData) {
     redirect("/select-customer");
   }
 
-  const db = getDb();
-  const products = selectAll<Product>(
+  const products = await selectAll<Product>(
     "SELECT product_id, product_name, price FROM products WHERE is_active = 1 ORDER BY product_name ASC",
   );
 
@@ -34,7 +33,7 @@ async function createOrder(formData: FormData) {
     redirect("/place-order?error=1");
   }
 
-  const create = db.transaction(() => {
+  await withTransaction(async (client) => {
     const orderTotal = entries.reduce(
       (sum, entry) => sum + entry.quantity * entry.product.price,
       0,
@@ -44,33 +43,30 @@ async function createOrder(formData: FormData) {
     const taxAmount = orderSubtotal * 0.08;
     const finalTotal = orderSubtotal + shippingFee + taxAmount;
 
-    const orderResult = db
-      .prepare(
-        `INSERT INTO orders 
-        (customer_id, order_datetime, payment_method, device_type, ip_country, 
+    const orderResult = await client.query<{ order_id: number }>(
+      `INSERT INTO orders
+        (customer_id, order_datetime, payment_method, device_type, ip_country,
          promo_used, order_subtotal, shipping_fee, tax_amount, order_total, risk_score, is_fraud)
-        VALUES (?, datetime('now'), 'credit_card', 'web', 'US', 0, ?, ?, ?, ?, 0, 0)`
-      )
-      .run(customerId, orderSubtotal, shippingFee, taxAmount, finalTotal);
-
-    const orderId = Number(orderResult.lastInsertRowid);
-
-    const insertItem = db.prepare(
-      "INSERT INTO order_items (order_id, product_id, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?)",
+        VALUES ($1, NOW(), 'credit_card', 'web', 'US', 0, $2, $3, $4, $5, 0, 0)
+        RETURNING order_id`,
+      [customerId, orderSubtotal, shippingFee, taxAmount, finalTotal],
     );
 
+    const orderId = orderResult.rows[0].order_id;
+
     for (const entry of entries) {
-      insertItem.run(
-        orderId,
-        entry.product.product_id,
-        entry.quantity,
-        entry.product.price,
-        entry.quantity * entry.product.price,
+      await client.query(
+        "INSERT INTO order_items (order_id, product_id, quantity, unit_price, line_total) VALUES ($1, $2, $3, $4, $5)",
+        [
+          orderId,
+          entry.product.product_id,
+          entry.quantity,
+          entry.product.price,
+          entry.quantity * entry.product.price,
+        ],
       );
     }
   });
-
-  create();
   revalidatePath("/dashboard");
   revalidatePath("/order-history");
   redirect("/order-history?placed=1");
@@ -98,7 +94,7 @@ export default async function PlaceOrderPage({
     );
   }
 
-  const products = selectAll<Product>(
+  const products = await selectAll<Product>(
     "SELECT product_id, product_name, price FROM products WHERE is_active = 1 ORDER BY product_name ASC",
   );
 

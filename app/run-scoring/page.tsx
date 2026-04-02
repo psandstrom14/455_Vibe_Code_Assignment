@@ -64,7 +64,7 @@ async function runScoring() {
       throw new Error("Inference service returned no inference columns.");
     }
 
-    const rows = selectAll<ScoringRow>(
+    const rows = await selectAll<ScoringRow>(
       `SELECT
         o.order_id,
         o.order_datetime,
@@ -87,14 +87,17 @@ async function runScoring() {
         c.customer_segment,
         c.loyalty_tier,
         c.is_active AS customer_is_active,
-        COALESCE(SUM(oi.quantity), 0) AS num_items,
-        COUNT(oi.order_item_id) AS line_count,
-        CAST(strftime('%H', o.order_datetime) AS INTEGER) AS order_hour,
-        CAST(strftime('%w', o.order_datetime) AS INTEGER) AS order_dow
+        COALESCE(agg.num_items, 0)::float AS num_items,
+        COALESCE(agg.line_count, 0)::int AS line_count,
+        CAST(EXTRACT(HOUR FROM o.order_datetime) AS INTEGER) AS order_hour,
+        CAST(EXTRACT(DOW FROM o.order_datetime) AS INTEGER) AS order_dow
       FROM orders o
       JOIN customers c ON c.customer_id = o.customer_id
-      LEFT JOIN order_items oi ON oi.order_id = o.order_id
-      GROUP BY o.order_id
+      LEFT JOIN (
+        SELECT order_id, SUM(quantity)::float AS num_items, COUNT(*)::int AS line_count
+        FROM order_items
+        GROUP BY order_id
+      ) agg ON agg.order_id = o.order_id
       ORDER BY o.order_id ASC`,
     );
 
@@ -130,7 +133,7 @@ async function runScoring() {
         is_fraud: number;
       };
 
-      runStatement("UPDATE orders SET predicted_is_fraud = ? WHERE order_id = ?", [
+      await runStatement("UPDATE orders SET predicted_is_fraud = $1 WHERE order_id = $2", [
         prediction.is_fraud,
         row.order_id,
       ]);

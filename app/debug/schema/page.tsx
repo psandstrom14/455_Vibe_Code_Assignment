@@ -1,55 +1,63 @@
-import Database from 'better-sqlite3';
-import path from 'path';
+import { selectAll } from "@/lib/db";
 
-export default function SchemaPage() {
-  const db = new Database(path.join(process.cwd(), 'shop.db'), { readonly: true });
+type ColumnRow = {
+  table_name: string;
+  column_name: string;
+  data_type: string;
+  is_nullable: string;
+};
 
-  const tables = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-    .all() as { name: string }[];
+export default async function SchemaPage() {
+  let columns: ColumnRow[] = [];
+  let error: string | null = null;
 
-  const schema = tables.map((t) => {
-    const columns = db.prepare(`PRAGMA table_info(${t.name})`).all() as {
-      cid: number;
-      name: string;
-      type: string;
-      notnull: number;
-      dflt_value: string | null;
-      pk: number;
-    }[];
-    return { table: t.name, columns };
-  });
+  try {
+    columns = await selectAll<ColumnRow>(
+      `SELECT table_name, column_name, data_type, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+       ORDER BY table_name, ordinal_position`,
+    );
+  } catch (e) {
+    error = e instanceof Error ? e.message : "Could not load schema.";
+  }
 
-  db.close();
+  const byTable = columns.reduce<Record<string, ColumnRow[]>>((acc, row) => {
+    if (!acc[row.table_name]) acc[row.table_name] = [];
+    acc[row.table_name].push(row);
+    return acc;
+  }, {});
 
   return (
-    <div style={{ padding: '2rem', fontFamily: 'monospace' }}>
-      <h1>Database Schema — shop.db</h1>
-      {schema.map((s) => (
-        <div key={s.table} style={{ marginBottom: '2rem' }}>
-          <h2 style={{ color: '#0070f3' }}>{s.table}</h2>
-          <table border={1} cellPadding={6}>
-            <thead>
-              <tr>
-                <th>Column</th>
-                <th>Type</th>
-                <th>Not Null</th>
-                <th>Primary Key</th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.columns.map((c) => (
-                <tr key={c.name}>
-                  <td>{c.name}</td>
-                  <td>{c.type}</td>
-                  <td>{c.notnull ? 'YES' : 'NO'}</td>
-                  <td>{c.pk ? 'YES' : ''}</td>
+    <div style={{ padding: "2rem", fontFamily: "monospace" }}>
+      <h1>Database schema (Supabase Postgres)</h1>
+      {error ? (
+        <p style={{ color: "crimson" }}>{error}</p>
+      ) : (
+        Object.entries(byTable).map(([table, rows]) => (
+          <div key={table} style={{ marginBottom: "2rem" }}>
+            <h2 style={{ color: "#0070f3" }}>{table}</h2>
+            <table border={1} cellPadding={6}>
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Nullable</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ))}
+              </thead>
+              <tbody>
+                {rows.map((c) => (
+                  <tr key={c.column_name}>
+                    <td>{c.column_name}</td>
+                    <td>{c.data_type}</td>
+                    <td>{c.is_nullable}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))
+      )}
     </div>
   );
 }

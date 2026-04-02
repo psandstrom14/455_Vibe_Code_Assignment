@@ -28,9 +28,9 @@ async function clearCustomerSelection() {
   revalidatePath("/");
 }
 
-export default function SelectCustomerPage() {
-  const customers = selectAll<Customer>(
-    "SELECT customer_id, full_name, email FROM customers WHERE is_active = 1 ORDER BY full_name ASC"
+export default async function SelectCustomerPage() {
+  const customers = await selectAll<Customer>(
+    "SELECT customer_id, full_name, email FROM customers WHERE is_active = 1 ORDER BY full_name ASC",
   );
 
   return (

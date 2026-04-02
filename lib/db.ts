@@ -1,115 +1,115 @@
 import "server-only";
-import Database from "better-sqlite3";
-import path from "node:path";
-
-const DB_PATH = path.join(process.cwd(), "shop.db");
+import { Pool, type PoolClient } from "pg";
 
 type SqlParams = Array<string | number | null>;
 
 declare global {
-  var __shopDb: Database.Database | undefined;
+  var __shopPool: Pool | undefined;
 }
 
-function ensureOrdersFraudPredictionColumn(db: Database.Database) {
-  const columns = db
-    .prepare("PRAGMA table_info(orders)")
-    .all() as Array<{ name: string }>;
+const SESSION_POOLER_HINT =
+  "Your DATABASE_URL uses the Direct connection host (db.*.supabase.co). On many networks (campus WiFi, IPv4-only) DNS fails with ENOTFOUND because that hostname is often IPv6-only. Fix: Supabase → Project Settings → Database → Connection string → choose Session pooler (Session mode, port 5432). The host must be aws-0-<region>.pooler.supabase.com — not db.<ref>.supabase.co. Paste the new URI into .env.local and restart the dev server.";
 
-  const hasPredictedFlag = columns.some(
-    (column) => column.name === "predicted_is_fraud",
-  );
+function rethrowWithConnectionHint(err: unknown): never {
+  if (err && typeof err === "object" && "code" in err) {
+    const e = err as NodeJS.ErrnoException & { hostname?: string };
+    const msg = String(e.message ?? "");
+    const host = e.hostname ?? "";
+    const looksSupabase =
+      host.includes("supabase") || msg.includes("supabase.co");
+    if (e.code === "ENOTFOUND" && looksSupabase) {
+      throw new Error(`${SESSION_POOLER_HINT}\n\nOriginal error: ${msg}`);
+    }
+  }
+  throw err;
+}
 
-  if (!hasPredictedFlag) {
-    db.exec("ALTER TABLE orders ADD COLUMN predicted_is_fraud INTEGER");
+async function runQuery(sql: string, params: SqlParams = []) {
+  try {
+    return await getPool().query(sql, params);
+  } catch (e) {
+    rethrowWithConnectionHint(e);
+    throw e;
   }
 }
 
-function createDb() {
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+function poolOptions(connectionString: string) {
+  // Supabase uses TLS; Windows / some networks need explicit SSL. Pooler hostnames
+  // are still valid for server verification, but rejectUnauthorized:false avoids
+  // rare cert chain issues in local dev (override with DATABASE_SSL_STRICT=1).
+  const strict =
+    process.env.DATABASE_SSL_STRICT === "1" || process.env.DATABASE_SSL_STRICT === "true";
+  const isSupabase =
+    connectionString.includes("supabase") || connectionString.includes("pooler.supabase.com");
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS customers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE
-    );
-
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      price_cents INTEGER NOT NULL,
-      stock INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS orders (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      customer_id INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'NEW',
-      total_cents INTEGER NOT NULL DEFAULT 0,
-      priority_score REAL NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (customer_id) REFERENCES customers(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS order_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      order_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      quantity INTEGER NOT NULL,
-      unit_price_cents INTEGER NOT NULL,
-      FOREIGN KEY (order_id) REFERENCES orders(id),
-      FOREIGN KEY (product_id) REFERENCES products(id)
-    );
-  `);
-
-  ensureOrdersFraudPredictionColumn(db);
-
-  const customerCount = db.prepare("SELECT COUNT(*) as count FROM customers").get() as {
-    count: number;
+  return {
+    connectionString,
+    max: 10,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 20_000,
+    // node-pg + Supabase: enable SSL when URI uses sslmode=require or host is Supabase
+    ssl:
+      connectionString.includes("sslmode=require") || isSupabase
+        ? strict
+          ? { rejectUnauthorized: true }
+          : { rejectUnauthorized: false }
+        : undefined,
   };
+}
 
-  if (customerCount.count === 0) {
-    const insertCustomer = db.prepare(
-      "INSERT INTO customers (name, email) VALUES (?, ?)",
+function getPool(): Pool {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. In Supabase: Project Settings → Database → Connection string → URI. Copy into .env.local and restart `npm run dev`.",
     );
-    const insertProduct = db.prepare(
-      "INSERT INTO products (name, price_cents, stock) VALUES (?, ?, ?)",
-    );
-
-    const seed = db.transaction(() => {
-      insertCustomer.run("Alice Carter", "alice@example.com");
-      insertCustomer.run("Bob Singh", "bob@example.com");
-      insertCustomer.run("Charlie Nguyen", "charlie@example.com");
-
-      insertProduct.run("Notebook", 699, 120);
-      insertProduct.run("Pen Set", 499, 80);
-      insertProduct.run("Backpack", 4599, 30);
-      insertProduct.run("Water Bottle", 1599, 45);
-    });
-
-    seed();
   }
-
-  return db;
-}
-
-export function getDb() {
-  if (!global.__shopDb) {
-    global.__shopDb = createDb();
+  if (!global.__shopPool) {
+    if (process.env.NODE_ENV === "development" && url.includes(":6543")) {
+      console.warn(
+        "[db] DATABASE_URL uses port 6543 (transaction pooler). If you see prepared-statement or PgBouncer errors, switch to the Session pooler or Direct connection string (port 5432) in Supabase.",
+      );
+    }
+    if (
+      process.env.NODE_ENV === "development" &&
+      /db\.[^.]+\.supabase\.co/i.test(url)
+    ) {
+      console.warn(
+        "[db] DATABASE_URL uses Direct connection (db.*.supabase.co). If you get ENOTFOUND, switch to Session pooler — see .env.example.",
+      );
+    }
+    global.__shopPool = new Pool(poolOptions(url));
   }
-  return global.__shopDb;
+  return global.__shopPool;
 }
 
-export function selectAll<T>(sql: string, params: SqlParams = []) {
-  return getDb().prepare(sql).all(...params) as T[];
+export async function selectAll<T>(sql: string, params: SqlParams = []): Promise<T[]> {
+  const result = await runQuery(sql, params);
+  return result.rows as T[];
 }
 
-export function selectOne<T>(sql: string, params: SqlParams = []) {
-  return getDb().prepare(sql).get(...params) as T | undefined;
+export async function selectOne<T>(sql: string, params: SqlParams = []): Promise<T | undefined> {
+  const result = await runQuery(sql, params);
+  return result.rows[0] as T | undefined;
 }
 
-export function runStatement(sql: string, params: SqlParams = []) {
-  return getDb().prepare(sql).run(...params);
+export async function runStatement(sql: string, params: SqlParams = []) {
+  return runQuery(sql, params);
+}
+
+export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  let client: PoolClient | undefined;
+  try {
+    client = await getPool().connect();
+    await client.query("BEGIN");
+    const out = await fn(client);
+    await client.query("COMMIT");
+    return out;
+  } catch (e) {
+    await client?.query("ROLLBACK").catch(() => {});
+    rethrowWithConnectionHint(e);
+    throw e;
+  } finally {
+    client?.release();
+  }
 }

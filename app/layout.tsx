@@ -41,10 +41,11 @@ export default async function RootLayout({
 }>) {
   const customerId = await getActiveCustomerId();
   const activeCustomer = customerId
-  ? selectOne<Customer>("SELECT customer_id, full_name FROM customers WHERE customer_id = ?", [
-      customerId,
-    ])
-  : null;
+    ? await selectOne<Customer>(
+        "SELECT customer_id, full_name FROM customers WHERE customer_id = $1",
+        [customerId],
+      )
+    : null;
 
   return (
     <html

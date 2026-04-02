@@ -39,23 +39,23 @@ export default async function OrderHistoryPage({
     );
   }
 
-  const orders = selectAll<OrderRow>(
+  const orders = await selectAll<OrderRow>(
     `SELECT o.order_id, o.order_datetime, o.order_total,
-      COUNT(oi.order_item_id) as item_count
+      COUNT(oi.order_item_id)::int AS item_count
      FROM orders o
      LEFT JOIN order_items oi ON oi.order_id = o.order_id
-     WHERE o.customer_id = ?
-     GROUP BY o.order_id
+     WHERE o.customer_id = $1
+     GROUP BY o.order_id, o.order_datetime, o.order_total
      ORDER BY o.order_datetime DESC`,
     [customerId],
   );
 
   const selectedOrder = order_id
-    ? selectAll<OrderItem>(
+    ? await selectAll<OrderItem>(
         `SELECT p.product_name, oi.quantity, oi.unit_price, oi.line_total
          FROM order_items oi
          JOIN products p ON p.product_id = oi.product_id
-         WHERE oi.order_id = ?`,
+         WHERE oi.order_id = $1`,
         [Number(order_id)],
       )
     : null;

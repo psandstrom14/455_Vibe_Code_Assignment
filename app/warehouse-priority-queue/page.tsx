@@ -9,12 +9,12 @@ type QueueRow = {
   is_fraud: number | null;
 };
 
-export default function WarehousePriorityQueuePage() {
+export default async function WarehousePriorityQueuePage() {
   let queue: QueueRow[] = [];
   let tableReady = true;
 
   try {
-    queue = selectAll<QueueRow>(
+    queue = await selectAll<QueueRow>(
       `SELECT
         o.order_id,
         o.order_datetime,
