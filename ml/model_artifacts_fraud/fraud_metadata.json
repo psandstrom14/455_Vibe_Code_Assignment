@@ -1,0 +1,71 @@
+{
+  "model_artifact": "fraud_pipeline.sav",
+  "target": "is_fraud",
+  "problem": "binary_classification_fraud",
+  "excluded_from_training": [
+    "risk_score"
+  ],
+  "inference_columns": [
+    "billing_zip",
+    "shipping_zip",
+    "shipping_state",
+    "payment_method",
+    "device_type",
+    "ip_country",
+    "promo_used",
+    "promo_code",
+    "order_subtotal",
+    "shipping_fee",
+    "tax_amount",
+    "order_total",
+    "gender",
+    "city",
+    "customer_state",
+    "customer_zip",
+    "customer_segment",
+    "loyalty_tier",
+    "customer_is_active",
+    "num_items",
+    "line_count",
+    "order_hour",
+    "order_dow",
+    "zip_mismatch"
+  ],
+  "numeric_columns": [
+    "promo_used",
+    "order_subtotal",
+    "shipping_fee",
+    "tax_amount",
+    "order_total",
+    "customer_is_active",
+    "num_items",
+    "line_count",
+    "order_hour",
+    "order_dow",
+    "zip_mismatch"
+  ],
+  "categorical_columns": [
+    "billing_zip",
+    "shipping_zip",
+    "shipping_state",
+    "payment_method",
+    "device_type",
+    "ip_country",
+    "promo_code",
+    "gender",
+    "city",
+    "customer_state",
+    "customer_zip",
+    "customer_segment",
+    "loyalty_tier"
+  ],
+  "best_model": "logreg",
+  "saved_at_utc": "2026-04-02T14:38:01.395652+00:00",
+  "test_metrics": {
+    "roc_auc": 0.759899172008547,
+    "pr_auc": 0.1549067004876719,
+    "precision": 0.13758389261744966,
+    "recall": 0.640625,
+    "f1": 0.2265193370165746
+  }
+}

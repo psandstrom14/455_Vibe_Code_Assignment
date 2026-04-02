@@ -14,7 +14,7 @@ npm install
 ```
 
 ### Database
-Make sure `shop.db` is in the root of the project. It should already be there.
+Make sure `shop.db` is in the **root of the project** (next to `package.json`). It should already be there. The Next.js app and the fraud training notebook both use this file.
 
 ### Run the app
 ```bash
@@ -39,6 +39,16 @@ Work through these steps in order to verify everything is working:
 
 - [ ] **Warehouse Priority Queue** — Go to `/warehouse-priority-queue`. Confirm orders are ranked by late delivery probability with the highest risk orders at the top.
 
+## Fraud pipeline (IS 455 / Chapter 17)
+
+Python-side artifacts live in **`ml/`**:
+
+- `ml/fraud_pipeline_shop.ipynb` — train the fraud model; outputs `ml/model_artifacts_fraud/fraud_pipeline.sav`
+- `ml/inference_server.py` — FastAPI service the app can call (TypeScript does not load `.sav` directly)
+- `ml/TEAMMATE_INTEGRATION.md` — API contract and integration notes for the web tier
+
+From `ml/`: `pip install -r requirements-inference.txt` then run uvicorn as documented in `TEAMMATE_INTEGRATION.md`.
+
 ## Project Structure
 ```
 app/                  # Next.js pages
@@ -54,7 +64,9 @@ lib/
   customer-session.ts # Cookie-based customer selection
 jobs/                 # Python ML pipeline scripts (Python team)
   run_inference.py    # Scores orders and writes to order_predictions
-shop.db               # SQLite operational database
+ml/                   # Fraud model: notebook, .sav artifacts, FastAPI inference server
+  model_artifacts_fraud/
+shop.db               # SQLite operational database (project root)
 ```
 
 ## How the ML Pipeline Works
