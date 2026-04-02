@@ -10,6 +10,20 @@ declare global {
   var __shopDb: Database.Database | undefined;
 }
 
+function ensureOrdersFraudPredictionColumn(db: Database.Database) {
+  const columns = db
+    .prepare("PRAGMA table_info(orders)")
+    .all() as Array<{ name: string }>;
+
+  const hasPredictedFlag = columns.some(
+    (column) => column.name === "predicted_is_fraud",
+  );
+
+  if (!hasPredictedFlag) {
+    db.exec("ALTER TABLE orders ADD COLUMN predicted_is_fraud INTEGER");
+  }
+}
+
 function createDb() {
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
@@ -49,6 +63,8 @@ function createDb() {
       FOREIGN KEY (product_id) REFERENCES products(id)
     );
   `);
+
+  ensureOrdersFraudPredictionColumn(db);
 
   const customerCount = db.prepare("SELECT COUNT(*) as count FROM customers").get() as {
     count: number;

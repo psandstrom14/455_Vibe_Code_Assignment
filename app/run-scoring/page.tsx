@@ -1,29 +1,154 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { exec } from "child_process";
-import path from "path";
+import { runStatement, selectAll } from "@/lib/db";
+
+const FRAUD_API_URL = process.env.FRAUD_API_URL ?? "http://127.0.0.1:8787";
+
+type ScoringRow = {
+  order_id: number;
+  order_datetime: string;
+  billing_zip: string | null;
+  shipping_zip: string | null;
+  shipping_state: string | null;
+  payment_method: string | null;
+  device_type: string | null;
+  ip_country: string | null;
+  promo_used: number | null;
+  promo_code: string | null;
+  order_subtotal: number | null;
+  shipping_fee: number | null;
+  tax_amount: number | null;
+  order_total: number | null;
+  gender: string | null;
+  city: string | null;
+  customer_state: string | null;
+  customer_zip: string | null;
+  customer_segment: string | null;
+  loyalty_tier: string | null;
+  customer_is_active: number | null;
+  num_items: number | null;
+  line_count: number | null;
+  order_hour: number | null;
+  order_dow: number | null;
+};
+
+function normalizeFeatureValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return value;
+}
 
 async function runScoring() {
   "use server";
 
-  const scriptPath = path.join(process.cwd(), "jobs", "run_inference.py");
+  let result: { success: boolean; output: string; count: string } = {
+    success: false,
+    output: "Unknown scoring error.",
+    count: "0",
+  };
 
-  const result = await new Promise<{ success: boolean; output: string; count: string }>((resolve) => {
-    exec(
-      `python3 ${scriptPath}`,
-      { timeout: 60000, cwd: process.cwd() },
-      (error, stdout, stderr) => {
-        if (error) {
-          resolve({ success: false, output: stderr || error.message, count: "0" });
-          return;
-        }
-        // Parse count from stdout e.g. "Inference complete. Predictions written: 42"
-        const match = stdout.match(/Predictions written:\s*(\d+)/);
-        const count = match ? match[1] : "unknown";
-        resolve({ success: true, output: stdout, count });
-      }
+  try {
+    const schemaResponse = await fetch(`${FRAUD_API_URL}/schema`, {
+      cache: "no-store",
+    });
+    if (!schemaResponse.ok) {
+      throw new Error(`Inference schema request failed (${schemaResponse.status}).`);
+    }
+
+    const schemaJson = (await schemaResponse.json()) as {
+      inference_columns?: string[];
+    };
+    const inferenceColumns = schemaJson.inference_columns ?? [];
+    if (inferenceColumns.length === 0) {
+      throw new Error("Inference service returned no inference columns.");
+    }
+
+    const rows = selectAll<ScoringRow>(
+      `SELECT
+        o.order_id,
+        o.order_datetime,
+        o.billing_zip,
+        o.shipping_zip,
+        o.shipping_state,
+        o.payment_method,
+        o.device_type,
+        o.ip_country,
+        o.promo_used,
+        o.promo_code,
+        o.order_subtotal,
+        o.shipping_fee,
+        o.tax_amount,
+        o.order_total,
+        c.gender,
+        c.city,
+        c.customer_state,
+        c.customer_zip,
+        c.customer_segment,
+        c.loyalty_tier,
+        c.is_active AS customer_is_active,
+        COALESCE(SUM(oi.quantity), 0) AS num_items,
+        COUNT(oi.order_item_id) AS line_count,
+        CAST(strftime('%H', o.order_datetime) AS INTEGER) AS order_hour,
+        CAST(strftime('%w', o.order_datetime) AS INTEGER) AS order_dow
+      FROM orders o
+      JOIN customers c ON c.customer_id = o.customer_id
+      LEFT JOIN order_items oi ON oi.order_id = o.order_id
+      GROUP BY o.order_id
+      ORDER BY o.order_id ASC`,
     );
-  });
+
+    let scoredCount = 0;
+    for (const row of rows) {
+      const zipMismatch =
+        row.billing_zip && row.shipping_zip && row.billing_zip !== row.shipping_zip ? 1 : 0;
+      const rowFeatures: Record<string, unknown> = {
+        ...row,
+        zip_mismatch: zipMismatch,
+      };
+
+      const features = Object.fromEntries(
+        inferenceColumns.map((column) => [
+          column,
+          normalizeFeatureValue(rowFeatures[column]),
+        ]),
+      );
+
+      const predictResponse = await fetch(`${FRAUD_API_URL}/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features }),
+        cache: "no-store",
+      });
+
+      if (!predictResponse.ok) {
+        const errorText = await predictResponse.text();
+        throw new Error(`Predict failed for order ${row.order_id}: ${errorText}`);
+      }
+
+      const prediction = (await predictResponse.json()) as {
+        is_fraud: number;
+      };
+
+      runStatement("UPDATE orders SET predicted_is_fraud = ? WHERE order_id = ?", [
+        prediction.is_fraud,
+        row.order_id,
+      ]);
+      scoredCount += 1;
+    }
+
+    result = {
+      success: true,
+      output: "Fraud scoring complete.",
+      count: String(scoredCount),
+    };
+  } catch (error) {
+    result = {
+      success: false,
+      output: error instanceof Error ? error.message : "Unknown scoring error.",
+      count: "0",
+    };
+  }
 
   revalidatePath("/warehouse-priority-queue");
 
@@ -44,11 +169,11 @@ export default async function RunScoringPage({
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="text-xl font-semibold">Run Scoring</h2>
+      <h2 className="text-xl font-semibold">Run Fraud Scoring</h2>
       <p className="mt-2 text-slate-600">
-        Triggers the Python inference script which scores all orders using the
-        trained ML model and writes predictions into the database. After scoring,
-        the Warehouse Priority Queue will update automatically.
+        Scores all current orders using the fraud model and stores the binary
+        prediction in <code>orders.predicted_is_fraud</code>. Historical truth
+        labels in <code>orders.is_fraud</code> are not overwritten.
       </p>
 
       <form action={runScoring} className="mt-4">
@@ -56,13 +181,13 @@ export default async function RunScoringPage({
           type="submit"
           className="rounded-md bg-slate-900 px-4 py-2 text-white hover:bg-slate-700"
         >
-          Run Scoring Now
+          Run Fraud Scoring Now
         </button>
       </form>
 
       {status === "success" && (
         <div className="mt-4 rounded-md bg-green-50 px-4 py-3 text-sm text-green-800">
-          <p className="font-medium">✅ Scoring complete!</p>
+          <p className="font-medium">Fraud scoring complete.</p>
           <p>Orders scored: {count}</p>
           <p className="text-slate-500">Ran at: {timestamp}</p>
         </div>
@@ -70,7 +195,7 @@ export default async function RunScoringPage({
 
       {status === "error" && (
         <div className="mt-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
-          <p className="font-medium">❌ Scoring failed</p>
+          <p className="font-medium">Fraud scoring skipped.</p>
           <p className="mt-1 font-mono text-xs whitespace-pre-wrap">
             {output ? decodeURIComponent(output) : "Unknown error"}
           </p>

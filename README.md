@@ -1,6 +1,6 @@
 # 455 Vibe Code Assignment — Student Shop App
 
-A full-stack web app built with Next.js and SQLite that demonstrates an end-to-end ML deployment pipeline for late delivery prediction.
+A full-stack web app built with Next.js and SQLite that demonstrates an end-to-end ML deployment pipeline for fraud prediction.
 
 ## Setup
 
@@ -35,9 +35,9 @@ Work through these steps in order to verify everything is working:
 
 - [ ] **View Orders** — Go to `/order-history`. Confirm your new order appears at the top. Click on it and confirm the line items expand correctly.
 
-- [ ] **Run Scoring** — Go to `/run-scoring`. Click "Run Scoring Now". Confirm it shows success and a count of orders scored. (Requires the Python team's `jobs/run_inference.py` to be complete.)
+- [ ] **Run Fraud Scoring** — Go to `/run-scoring`. Click "Run Fraud Scoring Now". Confirm it shows success and a count of orders scored. (Requires `ml/inference_server.py` to be running.)
 
-- [ ] **Warehouse Priority Queue** — Go to `/warehouse-priority-queue`. Confirm orders are ranked by late delivery probability with the highest risk orders at the top.
+- [ ] **Fraud Review Queue** — Go to `/warehouse-priority-queue`. Confirm fraud-predicted orders are listed first and each row shows predicted vs actual fraud labels.
 
 ## Fraud pipeline (IS 455 / Chapter 17)
 
@@ -56,14 +56,12 @@ app/                  # Next.js pages
   dashboard/          # Customer stats and recent orders
   place-order/        # Create a new order
   order-history/      # View past orders and line items
-  warehouse-priority-queue/  # ML-powered late delivery queue
-  run-scoring/        # Trigger the Python inference script
+  warehouse-priority-queue/  # ML-powered fraud review queue
+  run-scoring/        # Run batch fraud scoring via Python API
   debug/schema/       # Developer page showing DB schema
 lib/
   db.ts               # SQLite database helpers
   customer-session.ts # Cookie-based customer selection
-jobs/                 # Python ML pipeline scripts (Python team)
-  run_inference.py    # Scores orders and writes to order_predictions
 ml/                   # Fraud model: notebook, .sav artifacts, FastAPI inference server
   model_artifacts_fraud/
 shop.db               # SQLite operational database (project root)
@@ -71,8 +69,8 @@ shop.db               # SQLite operational database (project root)
 
 ## How the ML Pipeline Works
 
-1. The Python team trains a model that predicts late delivery risk
-2. `jobs/run_inference.py` loads the trained model and scores all orders
-3. Predictions are written to the `order_predictions` table in `shop.db`
-4. The warehouse priority queue reads from `order_predictions` and ranks orders
-5. The app never runs ML code — it just reads predictions like any other table
+1. The Python team trains a fraud model in `ml/fraud_pipeline_shop.ipynb`
+2. `ml/inference_server.py` loads the model artifact and exposes `POST /predict`
+3. The app scores all orders and writes binary predictions to `orders.predicted_is_fraud`
+4. The Fraud Review Queue reads from `orders` and prioritizes predicted-fraud rows
+5. `orders.is_fraud` remains the historical truth label for retraining

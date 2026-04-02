@@ -30,8 +30,8 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "Customer Dashboard" },
   { href: "/place-order", label: "Place Order" },
   { href: "/order-history", label: "Order History" },
-  { href: "/warehouse-priority-queue", label: "Warehouse Priority Queue" },
-  { href: "/run-scoring", label: "Run Scoring" },
+  { href: "/warehouse-priority-queue", label: "Fraud Review Queue" },
+  { href: "/run-scoring", label: "Run Fraud Scoring" },
 ];
 
 export default async function RootLayout({
