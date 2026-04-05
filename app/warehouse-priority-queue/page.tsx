@@ -25,7 +25,7 @@ export default async function WarehousePriorityQueuePage() {
       FROM orders o
       JOIN customers c ON c.customer_id = o.customer_id
       WHERE o.predicted_is_fraud IS NOT NULL
-      ORDER BY o.predicted_is_fraud DESC, o.order_datetime DESC
+      ORDER BY o.order_id DESC
       LIMIT 50`,
     );
   } catch {
