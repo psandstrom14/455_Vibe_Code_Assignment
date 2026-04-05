@@ -46,8 +46,8 @@ async function createOrder(formData: FormData) {
     const orderResult = await client.query<{ order_id: number }>(
       `INSERT INTO orders
         (customer_id, order_datetime, payment_method, device_type, ip_country,
-         promo_used, order_subtotal, shipping_fee, tax_amount, order_total, risk_score, is_fraud)
-        VALUES ($1, NOW(), 'credit_card', 'web', 'US', 0, $2, $3, $4, $5, 0, 0)
+         promo_used, order_subtotal, shipping_fee, tax_amount, order_total)
+        VALUES ($1, NOW(), 'credit_card', 'web', 'US', 0, $2, $3, $4, $5)
         RETURNING order_id`,
       [customerId, orderSubtotal, shippingFee, taxAmount, finalTotal],
     );

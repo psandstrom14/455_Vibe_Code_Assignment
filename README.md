@@ -14,7 +14,20 @@ npm install
 ```
 
 ### Database
-Make sure `shop.db` is in the **root of the project** (next to `package.json`). It should already be there. The Next.js app and the fraud training notebook both use this file.
+This app uses Supabase (PostgreSQL). Add a `.env.local` file in the project root:
+```
+DATABASE_URL=postgresql://postgres.sbltgtzecialnwsdvxfa:[PASSWORD]@aws-1-us-east-2.pooler.supabase.com:5432/postgres
+```
+Ask a teammate for the password.
+
+### Run the inference server (required for fraud scoring)
+In a separate terminal:
+```bash
+cd ml
+pip install -r requirements-inference.txt
+python inference_server.py
+```
+Keep this running while using the app.
 
 ### Run the app
 ```bash

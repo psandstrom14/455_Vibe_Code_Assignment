@@ -82,15 +82,15 @@ async function runScoring() {
         o.order_total,
         c.gender,
         c.city,
-        c.customer_state,
-        c.customer_zip,
+        c.state AS customer_state, 
+        c.zip_code AS customer_zip,
         c.customer_segment,
         c.loyalty_tier,
         c.is_active AS customer_is_active,
         COALESCE(agg.num_items, 0)::float AS num_items,
         COALESCE(agg.line_count, 0)::int AS line_count,
-        CAST(EXTRACT(HOUR FROM o.order_datetime) AS INTEGER) AS order_hour,
-        CAST(EXTRACT(DOW FROM o.order_datetime) AS INTEGER) AS order_dow
+        EXTRACT(HOUR FROM o.order_datetime::timestamp)::integer AS order_hour,
+EXTRACT(DOW FROM o.order_datetime::timestamp)::integer AS order_dow
       FROM orders o
       JOIN customers c ON c.customer_id = o.customer_id
       LEFT JOIN (
@@ -98,7 +98,8 @@ async function runScoring() {
         FROM order_items
         GROUP BY order_id
       ) agg ON agg.order_id = o.order_id
-      ORDER BY o.order_id ASC`,
+      ORDER BY o.order_id DESC
+      LIMIT 200`,
     );
 
     let scoredCount = 0;
